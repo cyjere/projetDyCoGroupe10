@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-aba_core.py — Générateur ABA / ABA+ (frameworks plats)
+ABA / ABA+ generator for flat frameworks.
 
-Fonctionnalités (Question 1) :
-  * définition des littéraux, règles, hypothèses (assumptions) et contraires ;
-  * conversion automatique vers un framework non-circulaire puis atomique ;
-  * génération de tous les arguments et de toutes les attaques ;
-  * préférences entre hypothèses (clôture transitive) et calcul des
-    attaques ABA+ normales / inverses (Čyras & Toni, 2016).
+Main features:
+  - literals, rules, assumptions and contraries
+  - conversion to a non-circular, then atomic framework
+  - generation of all arguments and attacks
+  - preferences between assumptions (transitive closure) and
+    ABA+ normal / reverse attacks (Cyras & Toni, 2016)
 """
 
 import re
@@ -15,22 +15,22 @@ import itertools
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple, FrozenSet
 
-Argument = Tuple[FrozenSet[str], str]          # (support, conclusion)
-Attack = Tuple[Argument, Argument]             # (attaquant, attaqué)
+Argument = Tuple[FrozenSet[str], str]          # (support, claim)
+Attack = Tuple[Argument, Argument]             # (attacker, attacked)
 
 
-# =============================================================================
-# 1. Structure de données
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Data structure
+# ---------------------------------------------------------------------------
 
 @dataclass
 class ABAFramework:
     literals: Set[str] = field(default_factory=set)
     assumptions: Set[str] = field(default_factory=set)
     contraries: Dict[str, str] = field(default_factory=dict)
-    # id de règle -> (corps, tête)
+    # rule id -> (body, head)
     rules: Dict[str, Tuple[FrozenSet[str], str]] = field(default_factory=dict)
-    # ensemble de couples (x, y) signifiant  x < y  (x strictement moins préféré que y)
+    # pairs (x, y) meaning x < y (x is strictly less preferred than y)
     less_than: Set[Tuple[str, str]] = field(default_factory=set)
     warnings: List[str] = field(default_factory=list)
 
@@ -48,9 +48,9 @@ class ABAFramework:
         )
 
 
-# =============================================================================
-# 2. Parsing du format texte de l'énoncé
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Parsing the input text format
+# ---------------------------------------------------------------------------
 
 _ID = r"[A-Za-z0-9_']+"
 
@@ -61,12 +61,12 @@ def _split_list(s):
 
 def parse_preferences(lines):
     """
-    Formats acceptés (une ou plusieurs lignes PREF) :
+    Accepted formats (one or several PREF lines):
         PREF: a > b
-        PREF: a,b > c          (a > c et b > c)
-        PREF: a > b > c        (chaîne)
-        PREF: a > b ; c > d    (plusieurs préférences sur une ligne)
-    Renvoie l'ensemble des couples (x, y) avec x < y, clôturé transitivement.
+        PREF: a,b > c          (a > c and b > c)
+        PREF: a > b > c        (chain)
+        PREF: a > b ; c > d    (several preferences on one line)
+    Returns the set of pairs (x, y) with x < y, closed under transitivity.
     """
     less = set()
     for stmt in lines:
@@ -76,12 +76,12 @@ def parse_preferences(lines):
                 continue
             levels = [_split_list(x) for x in part.split(">")]
             if len(levels) < 2 or any(not lv for lv in levels):
-                raise ValueError(f"Préférence mal formée : « {part} »")
+                raise ValueError(f"Malformed preference: '{part}'")
             for hi, lo in zip(levels, levels[1:]):
                 for h in hi:
                     for l in lo:
                         less.add((l, h))          # l < h
-    # clôture transitive
+    # transitive closure
     changed = True
     while changed:
         changed = False
@@ -122,7 +122,7 @@ def parse_aba_text(text):
         if m:
             rid, head, body = m.group(1), m.group(2), m.group(3)
             if rid in fw.rules:
-                raise ValueError(f"Identifiant de règle dupliqué : {rid}")
+                raise ValueError(f"Duplicate rule id: {rid}")
             fw.rules[rid] = (frozenset(_split_list(body)), head)
             continue
 
@@ -132,11 +132,11 @@ def parse_aba_text(text):
                 pref_lines.append(m.group(1))
             continue
 
-        fw.warnings.append(f"Ligne ignorée (format non reconnu) : « {line} »")
+        fw.warnings.append(f"Line ignored (unknown format): '{line}'")
 
     fw.less_than = parse_preferences(pref_lines)
 
-    # --- validation / complétion de L ---------------------------------------
+    # check / complete the set of literals
     used = set(fw.assumptions) | set(fw.contraries.values())
     for body, head in fw.rules.values():
         used |= set(body) | {head}
@@ -144,41 +144,41 @@ def parse_aba_text(text):
         used |= {x, y}
 
     if declared_literals is None:
-        fw.warnings.append("Aucune ligne « L: [...] » : les littéraux sont déduits des règles.")
+        fw.warnings.append("No 'L: [...]' line: literals are taken from the rules.")
         fw.literals = used
     else:
         missing = used - declared_literals
         if missing:
-            fw.warnings.append("Littéraux utilisés mais absents de L (ajoutés) : "
+            fw.warnings.append("Literals used but missing from L (added): "
                                + ", ".join(sorted(missing)))
         fw.literals = declared_literals | used
 
-    # --- contrôles de cohérence ---------------------------------------------
+    # consistency checks
     for a in sorted(fw.assumptions):
         if a not in fw.contraries:
-            raise ValueError(f"L'hypothèse « {a} » n'a pas de contraire (C({a}): ...).")
+            raise ValueError(f"Assumption '{a}' has no contrary (C({a}): ...).")
     for a in sorted(fw.contraries):
         if a not in fw.assumptions:
-            raise ValueError(f"C({a}) est défini mais « {a} » n'est pas une hypothèse.")
+            raise ValueError(f"C({a}) is defined but '{a}' is not an assumption.")
     for rid, (body, head) in fw.rules.items():
         if head in fw.assumptions:
-            raise ValueError(f"Règle {rid} : une hypothèse ({head}) ne peut pas être "
-                             f"la tête d'une règle (ABA plat).")
+            raise ValueError(f"Rule {rid}: an assumption ({head}) cannot be "
+                             f"the head of a rule (flat ABA).")
     for (x, y) in fw.less_than:
         if x not in fw.assumptions or y not in fw.assumptions:
-            raise ValueError("Les préférences ne portent que sur des hypothèses "
-                             f"(« {x} » / « {y} »).")
+            raise ValueError("Preferences can only be given on assumptions "
+                             f"('{x}' / '{y}').")
         if x == y:
-            raise ValueError(f"Préférences cycliques : {x} < {x}.")
+            raise ValueError(f"Cyclic preferences: {x} < {x}.")
     return fw
 
 
-# =============================================================================
-# 3. Propriétés : circularité et atomicité
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Properties: circularity and atomicity
+# ---------------------------------------------------------------------------
 
 def dependency_graph(fw):
-    """Arc b -> h pour chaque règle h <- ..., b, ... (b non-hypothèse)."""
+    """Edge b -> h for every rule h <- ..., b, ... where b is not an assumption."""
     g = {x: set() for x in fw.literals}
     for body, head in fw.rules.values():
         for b in body:
@@ -189,7 +189,7 @@ def dependency_graph(fw):
 
 
 def is_circular(fw):
-    """Vrai si un littéral dépend (transitivement) de lui-même."""
+    """True if some literal depends (transitively) on itself."""
     g = dependency_graph(fw)
     WHITE, GREY, BLACK = 0, 1, 2
     color = {x: WHITE for x in g}
@@ -208,7 +208,7 @@ def is_circular(fw):
 
 
 def is_atomic(fw):
-    """Atomique : le corps de chaque règle ne contient que des hypothèses."""
+    """Atomic: every rule body only contains assumptions."""
     return all(body <= fw.assumptions for body, _ in fw.rules.values())
 
 
@@ -219,22 +219,22 @@ def _fresh(name, taken):
     return name
 
 
-# =============================================================================
-# 4. Conversions
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Conversions
+# ---------------------------------------------------------------------------
 
 def to_non_circular(fw):
     """
-    Construction par niveaux (dépliage borné).
-    Soit k le nombre de littéraux non-hypothèses qui sont têtes de règles.
-    Pour chaque littéral non-hypothèse x on crée x_1, ..., x_{k-1} ; x lui-même
-    joue le rôle du niveau k.  x_i signifie « x dérivable par un arbre de
-    hauteur <= i ».  Pour chaque règle  h <- B  et chaque niveau i :
-        * i = 1 : h_1 <- B              seulement si B ne contient que des hypothèses
-        * i > 1 : h_i <- B^{(i-1)}       (chaque non-hypothèse b de B devient b_{i-1})
-    Un arbre de dérivation sans répétition a une hauteur <= k, donc les
-    conclusions et supports d'origine sont conservés, et le nouveau framework
-    est non-circulaire (les règles font toujours monter de niveau).
+    Level-based construction (bounded unfolding).
+    Let k be the number of non-assumptions that are heads of rules.
+    Every non-assumption x gets copies x_1, ..., x_{k-1}, and x itself is
+    used as level k. x_i means "x can be derived with a tree of height <= i".
+    For every rule h <- B and every level i:
+        i = 1 : h_1 <- B          only if B contains assumptions only
+        i > 1 : h_i <- B(i-1)     (each non-assumption b in B becomes b_{i-1})
+    A derivation without repetition has height <= k, so the original claims
+    and supports are kept, and the new framework has no cycle since every
+    rule goes up one level.
     """
     if not is_circular(fw):
         return fw.copy()
@@ -267,18 +267,18 @@ def to_non_circular(fw):
 
 def to_atomic(fw):
     """
-    Conversion en framework atomique (pour un framework NON-circulaire).
-    Pour chaque non-hypothèse s apparaissant dans un corps de règle :
-        * nouvelles hypothèses s_d (« s est dérivé ») et s_nd (« s n'est pas dérivé »)
-        * contraire(s_d) = s_nd   et   contraire(s_nd) = s
-        * chaque occurrence de s dans un corps est remplacée par s_d.
-    Le corps de chaque règle ne contient alors plus que des hypothèses.
+    Conversion to an atomic framework (the input must be non-circular).
+    For every non-assumption s that appears in a rule body:
+        - new assumptions s_d ("s is derived") and s_nd ("s is not derived")
+        - contrary(s_d) = s_nd and contrary(s_nd) = s
+        - every occurrence of s in a body is replaced by s_d
+    After this, rule bodies only contain assumptions.
     """
     if is_atomic(fw):
         return fw.copy()
     if is_circular(fw):
-        raise ValueError("to_atomic requiert un framework non-circulaire "
-                         "(appeler to_non_circular d'abord).")
+        raise ValueError("to_atomic needs a non-circular framework "
+                         "(call to_non_circular first).")
 
     new = fw.copy()
     taken = set(fw.literals)
@@ -299,29 +299,29 @@ def to_atomic(fw):
 
 
 def convert(fw):
-    """Conversion automatique : non-circulaire puis atomique. Renvoie (fw', étapes)."""
+    """Makes the framework non-circular, then atomic. Returns (new_fw, steps)."""
     steps = []
     if is_circular(fw):
         fw = to_non_circular(fw)
-        steps.append("non-circulaire")
+        steps.append("non-circular")
     if not is_atomic(fw):
         fw = to_atomic(fw)
-        steps.append("atomique")
+        steps.append("atomic")
     return fw, steps
 
 
-# =============================================================================
-# 5. Arguments
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
 
 def generate_arguments(fw):
     """
-    Un argument  S ⊢ c  est un arbre de déduction de racine c dont les feuilles
-    sont des hypothèses (ensemble S) ou des faits (règles à corps vide).
-    On calcule, pour chaque littéral, l'ensemble des supports possibles.
-    Les cycles sont évités (un littéral n'est pas réutilisé sur sa propre
-    branche), ce qui rend la fonction correcte même sur un framework circulaire.
-    Renvoie {(S, c): "A1", ...}.
+    An argument S |- c is a deduction tree with root c whose leaves are
+    assumptions (the set S) or facts (rules with an empty body).
+    For each literal we compute all its possible supports.
+    A literal is never reused on its own branch, so this also terminates
+    on circular frameworks.
+    Returns {(S, c): "A1", ...}.
     """
     rules_by_head = {}
     for rid, (body, head) in fw.rules.items():
@@ -357,12 +357,12 @@ def generate_arguments(fw):
     return {arg: f"A{i + 1}" for i, arg in enumerate(ordered)}
 
 
-# =============================================================================
-# 6. Attaques ABA et ABA+
-# =============================================================================
+# ---------------------------------------------------------------------------
+# ABA and ABA+ attacks
+# ---------------------------------------------------------------------------
 
 def compute_attacks(fw, args):
-    """X = (S, c) attaque Y = (T, d) ssi c est le contraire d'une hypothèse de T."""
+    """X = (S, c) attacks Y = (T, d) iff c is the contrary of an assumption in T."""
     attacks = set()
     for X in args:
         S, c = X
@@ -374,18 +374,18 @@ def compute_attacks(fw, args):
 
 
 def is_less_preferred(x, y, fw):
-    """x < y  (x strictement moins préféré que y)."""
+    """x < y (x is strictly less preferred than y)."""
     return (x, y) in fw.less_than
 
 
 def compute_aba_plus_attacks(fw, args, attacks_aba):
     """
-    ABA+ (Čyras & Toni 2016), au niveau des arguments.
-    Pour chaque attaque ABA  X=(S,c) -> Y=(T,·)  avec c = contraire(β), β ∈ T :
-      * NORMALE  X -> Y   si aucun α ∈ S n'est moins préféré que β ;
-      * INVERSE  Y -> X   s'il existe α ∈ S avec α < β
-        (l'attaque est retournée : c'est Y qui attaque X).
-    Les attaques inverses sont stockées DANS LEUR SENS FINAL (Y, X).
+    ABA+ (Cyras & Toni, 2016), at the level of arguments.
+    For every ABA attack X = (S, c) -> Y = (T, .) with c = contrary(beta), beta in T:
+      - NORMAL  X -> Y  if no alpha in S is less preferred than beta
+      - REVERSE Y -> X  if some alpha in S has alpha < beta
+        (the attack is turned around, Y now attacks X)
+    Reverse attacks are stored in their final direction (Y, X).
     """
     normal, reverse = set(), set()
     for (X, Y) in attacks_aba:
@@ -401,9 +401,9 @@ def compute_aba_plus_attacks(fw, args, attacks_aba):
     return {"normal": normal, "reverse": reverse, "all": normal | reverse}
 
 
-# =============================================================================
-# 7. Pipeline
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Full analysis
+# ---------------------------------------------------------------------------
 
 @dataclass
 class AnalysisResult:
@@ -424,9 +424,9 @@ def analyze(fw):
                           is_circular_fw=is_circular(fw))
 
 
-# =============================================================================
-# 8. Affichage texte et graphe
-# =============================================================================
+# ---------------------------------------------------------------------------
+# Text output and graph
+# ---------------------------------------------------------------------------
 
 def fmt_support(S):
     return "{" + ",".join(sorted(S)) + "}" if S else "∅"
@@ -446,7 +446,7 @@ def describe_framework(fw):
         body, head = fw.rules[rid]
         lines.append(f"[{rid}]: {head} <- {','.join(sorted(body))}")
     if fw.less_than:
-        lines.append("PREF (clôture) : " + ", ".join(
+        lines.append("PREF (closure): " + ", ".join(
             f"{y} > {x}" for (x, y) in sorted(fw.less_than)))
     return lines
 
@@ -471,9 +471,10 @@ def render_attacks_graph(analysis, title="ABA vs ABA+ attacks", save_path=None):
     fig_size = min(8 + 0.35 * n, 22)
     fig, ax = plt.subplots(figsize=(fig_size, fig_size * 0.85))
     if n == 0:
-        ax.text(0.5, 0.5, "Aucun argument", ha="center", va="center")
+        ax.text(0.5, 0.5, "No arguments", ha="center", va="center")
         ax.axis("off")
     else:
+        # nodes placed on a circle
         R = 6.0
         pos = {v: (R * math.cos(2 * math.pi * i / n + math.pi / 2),
                    R * math.sin(2 * math.pi * i / n + math.pi / 2))
@@ -490,6 +491,7 @@ def render_attacks_graph(analysis, title="ABA vs ABA+ attacks", save_path=None):
         for es, color, ls, lw, rad in layers:
             for (u, v) in es:
                 if u == v:
+                    # self-attack: small loop above the node
                     x, y = pos[u]
                     ax.add_patch(FancyArrowPatch(
                         (x - 0.35, y + 0.45), (x + 0.35, y + 0.45),
@@ -511,9 +513,9 @@ def render_attacks_graph(analysis, title="ABA vs ABA+ attacks", save_path=None):
         ax.set_ylim(-R - 1.8, R + 1.8)
         ax.set_aspect("equal")
         ax.legend(handles=[
-            Line2D([0], [0], color="#9ca3af", linestyle=":", lw=1.4, label="Attaque ABA"),
-            Line2D([0], [0], color="#2563eb", linestyle="-", lw=2.2, label="ABA+ normale"),
-            Line2D([0], [0], color="#dc2626", linestyle="--", lw=2.2, label="ABA+ inverse"),
+            Line2D([0], [0], color="#9ca3af", linestyle=":", lw=1.4, label="ABA attack"),
+            Line2D([0], [0], color="#2563eb", linestyle="-", lw=2.2, label="ABA+ normal"),
+            Line2D([0], [0], color="#dc2626", linestyle="--", lw=2.2, label="ABA+ reverse"),
         ], loc="upper right", fontsize=10)
         ax.set_title(title, fontsize=14)
         ax.axis("off")

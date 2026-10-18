@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-ABA / ABA+ Generator — application web (Flask)
-Lancement local :   python app.py            -> http://127.0.0.1:5000
-Déploiement Render : gunicorn app:app
+ABA / ABA+ Generator - Flask web app
+
+Run locally:      python app.py   then open http://127.0.0.1:5000
+Render (deploy):  gunicorn app:app
 """
 import os
 import sys
@@ -12,12 +13,13 @@ import threading
 from flask import Flask, request, render_template_string
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from aba_core import (  # noqa: E402
+from aba_core import (
     parse_aba_text, analyze, render_attacks_graph, convert,
     is_atomic, is_circular, describe_framework, fmt_argument,
 )
 
 app = Flask(__name__)
+# matplotlib is not thread-safe, so graphs are drawn one at a time
 _draw_lock = threading.Lock()
 
 EXAMPLE = """## Literals
@@ -44,7 +46,7 @@ PREF: a > b
 
 HTML = """
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -87,46 +89,46 @@ HTML = """
 <div class="page">
   <header>
     <h1>ABA / ABA+ Generator</h1>
-    <p>Arguments, attaques ABA, conversion non-circulaire/atomique et attaques ABA+ (normales et inverses).</p>
+    <p>Arguments, ABA attacks, non-circular/atomic conversion and ABA+ attacks (normal and reverse).</p>
   </header>
 
   <form method="post" class="card">
-    <div class="card-header"><span class="dot"></span>Entrée du framework</div>
+    <div class="card-header"><span class="dot"></span>Framework input</div>
     <div class="card-body">
       <textarea name="input" spellcheck="false" autocomplete="off">{{ input_text }}</textarea>
       <div class="actions">
-        <button type="button" class="btn" id="btn-example">Exemple</button>
-        <button type="submit" class="btn btn-primary">Exécuter</button>
-        <button type="button" class="btn" id="btn-clear">Effacer</button>
+        <button type="button" class="btn" id="btn-example">Example</button>
+        <button type="submit" class="btn btn-primary">Run</button>
+        <button type="button" class="btn" id="btn-clear">Clear</button>
         <label class="check">
           <input type="checkbox" name="auto_convert" {{ 'checked' if auto_convert else '' }}>
-          Analyser le framework converti (non-circulaire + atomique)
+          Analyse the converted framework (non-circular + atomic)
         </label>
       </div>
     </div>
   </form>
 
-  {% if error %}<div class="alert alert-error"><strong>Erreur :</strong> {{ error }}</div>{% endif %}
+  {% if error %}<div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>{% endif %}
   {% if warnings %}
-  <div class="alert alert-warn"><strong>Avertissements</strong>
+  <div class="alert alert-warn"><strong>Warnings</strong>
     <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul>
   </div>
   {% endif %}
 
   {% if res %}
   <div class="card">
-    <div class="card-header"><span class="dot"></span>0. Propriétés et conversion</div>
+    <div class="card-header"><span class="dot"></span>0. Properties and conversion</div>
     <div class="card-body">
       <div class="tags">
-        <span class="{{ 'no' if res.orig_circular else 'yes' }}">Framework d'origine : {{ 'circulaire' if res.orig_circular else 'non-circulaire' }}</span>
-        <span class="{{ 'yes' if res.orig_atomic else 'no' }}">{{ 'atomique' if res.orig_atomic else 'non atomique' }}</span>
+        <span class="{{ 'no' if res.orig_circular else 'yes' }}">Original framework: {{ 'circular' if res.orig_circular else 'non-circular' }}</span>
+        <span class="{{ 'yes' if res.orig_atomic else 'no' }}">{{ 'atomic' if res.orig_atomic else 'not atomic' }}</span>
       </div>
       <p style="margin:.3rem 0 .8rem">{{ res.conversion_msg }}</p>
       <div class="grid2">
-        <div><strong>Framework d'origine</strong><pre>{{ res.orig_desc }}</pre></div>
-        <div><strong>Framework converti</strong><pre>{{ res.conv_desc }}</pre></div>
+        <div><strong>Original framework</strong><pre>{{ res.orig_desc }}</pre></div>
+        <div><strong>Converted framework</strong><pre>{{ res.conv_desc }}</pre></div>
       </div>
-      <p style="margin:.8rem 0 0;color:var(--soft)">Analyse ci-dessous effectuée sur le framework <strong>{{ 'converti' if auto_convert else "d'origine" }}</strong>.</p>
+      <p style="margin:.8rem 0 0;color:var(--soft)">The results below are computed on the <strong>{{ 'converted' if auto_convert else 'original' }}</strong> framework.</p>
     </div>
   </div>
 
@@ -134,38 +136,38 @@ HTML = """
     <div class="card-header"><span class="dot" style="background:#16a34a"></span>1. Arguments <span class="count">({{ res.args|length }})</span></div>
     <div class="card-body">
       {% if res.args %}<ul class="res">{% for x in res.args %}<li>{{ x }}</li>{% endfor %}</ul>
-      {% else %}<p class="empty">Aucun argument.</p>{% endif %}
+      {% else %}<p class="empty">No arguments.</p>{% endif %}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-header"><span class="dot" style="background:#d97706"></span>2. Attaques ABA <span class="count">({{ res.aba|length }})</span></div>
+    <div class="card-header"><span class="dot" style="background:#d97706"></span>2. ABA attacks <span class="count">({{ res.aba|length }})</span></div>
     <div class="card-body">
       {% if res.aba %}<ul class="res">{% for x in res.aba %}<li>{{ x }}</li>{% endfor %}</ul>
-      {% else %}<p class="empty">Aucune attaque ABA.</p>{% endif %}
+      {% else %}<p class="empty">No ABA attacks.</p>{% endif %}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-header"><span class="dot" style="background:#2563eb"></span>3. Attaques ABA+ normales <span class="count">({{ res.normal|length }})</span></div>
+    <div class="card-header"><span class="dot" style="background:#2563eb"></span>3. ABA+ normal attacks <span class="count">({{ res.normal|length }})</span></div>
     <div class="card-body">
       {% if res.normal %}<ul class="res">{% for x in res.normal %}<li>{{ x }}</li>{% endfor %}</ul>
-      {% else %}<p class="empty">Aucune attaque normale.</p>{% endif %}
+      {% else %}<p class="empty">No normal attacks.</p>{% endif %}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-header"><span class="dot" style="background:#dc2626"></span>4. Attaques ABA+ inverses <span class="count">({{ res.reverse|length }})</span></div>
+    <div class="card-header"><span class="dot" style="background:#dc2626"></span>4. ABA+ reverse attacks <span class="count">({{ res.reverse|length }})</span></div>
     <div class="card-body">
       {% if res.reverse %}<ul class="res">{% for x in res.reverse %}<li>{{ x }}</li>{% endfor %}</ul>
-      {% else %}<p class="empty">Aucune attaque inverse.</p>{% endif %}
+      {% else %}<p class="empty">No reverse attacks.</p>{% endif %}
     </div>
   </div>
 
   {% if graph_uri %}
   <div class="card">
-    <div class="card-header"><span class="dot"></span>5. Graphe des attaques</div>
-    <div class="card-body graph"><img src="{{ graph_uri }}" alt="Graphe des attaques ABA et ABA+"></div>
+    <div class="card-header"><span class="dot"></span>5. Attack graph</div>
+    <div class="card-body graph"><img src="{{ graph_uri }}" alt="ABA and ABA+ attack graph"></div>
   </div>
   {% endif %}
   {% endif %}
@@ -187,13 +189,18 @@ def _arg_line(arg, ids):
 
 
 def _attack_line(X, Y, ids):
-    return f"{ids[X]} → {ids[Y]}    ({fmt_argument(X)}  attaque  {fmt_argument(Y)})"
+    return f"{ids[X]} → {ids[Y]}    ({fmt_argument(X)}  attacks  {fmt_argument(Y)})"
 
 
 def build_data(analysis):
     ids = analysis.arguments
-    order = lambda a: int(ids[a][1:])  # noqa: E731
-    att_order = lambda e: (order(e[0]), order(e[1]))  # noqa: E731
+
+    def order(a):
+        return int(ids[a][1:])
+
+    def att_order(e):
+        return (order(e[0]), order(e[1]))
+
     return {
         "args": [_arg_line(a, ids) for a in sorted(ids, key=order)],
         "aba": [_attack_line(X, Y, ids) for X, Y in sorted(analysis.attacks, key=att_order)],
@@ -215,13 +222,13 @@ def index():
             fw = parse_aba_text(input_text)
             warnings = fw.warnings
             if not fw.assumptions:
-                raise ValueError("Aucune hypothèse détectée (ligne « A: [...] »).")
+                raise ValueError("No assumptions found ('A: [...]' line).")
 
             conv_fw, steps = convert(fw)
             if steps:
-                msg = "Conversion automatique effectuée : framework rendu " + " puis ".join(steps) + "."
+                msg = "Automatic conversion done: the framework was made " + " then ".join(steps) + "."
             else:
-                msg = "Le framework est déjà non-circulaire et atomique : aucune conversion nécessaire."
+                msg = "The framework is already non-circular and atomic: no conversion needed."
 
             target = conv_fw if auto_convert else fw
             analysis = analyze(target)
@@ -234,9 +241,10 @@ def index():
             )
             try:
                 with _draw_lock:
-                    graph_uri = render_attacks_graph(analysis, title="Attaques ABA vs ABA+")
-            except Exception as e:  # le graphe ne doit pas bloquer l'analyse
-                warnings = warnings + ["Graphe non généré : " + str(e)]
+                    graph_uri = render_attacks_graph(analysis, title="ABA vs ABA+ attacks")
+            except Exception as e:
+                # if the graph fails we still show the text results
+                warnings = warnings + ["Graph could not be generated: " + str(e)]
         except Exception as e:
             error = str(e)
 
